@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Planner"/>
+<title>Planner</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',system-ui,sans-serif;background:#0A0A0F;color:#F0EDE8;min-height:100vh;min-height:-webkit-fill-available;overflow-x:hidden}
+:root{--purple:#8A85FF;--red:#E24B4A;--green:#1D9E75;--amber:#BA7517;--blue:#185FA5}
+input,select,textarea{font-family:'DM Sans',system-ui,sans-serif;-webkit-appearance:none;appearance:none}
+input[type=date],input[type=time]{color-scheme:dark}
+::-webkit-scrollbar{display:none}
+</style>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useCallback,useRef}=React;
+const CLIENT_ID="158830343189-ggvrpv5hpcolf536ciee96eneeahinos.apps.googleusercontent.com";
+const SCOPES="https://www.googleapis.com/auth/calendar";
+const CATS=["Work","Personal","MADI","Family"];
+const PRIS=["High","Medium","Low"];
+const PC={High:"#E24B4A",Medium:"#BA7517",Low:"#1D9E75"};
+const CC={Work:"#185FA5",Personal:"#534AB7",MADI:"#0F6E56",Family:"#D85A30"};
+const SK="romit_planner_v1";
+
+function td(){return new Date().toISOString().split("T")[0]}
+function fd(d){return d.toISOString().split("T")[0]}
+function addD(s,n){const d=new Date(s);d.setDate(d.getDate()+n);return fd(d)}
+function dsp(s){return new Date(s+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}
+function fmtT(t){if(!t)return"";const[h,m]=t.split(":").map(Number);return`${h%12||12}:${String(m).padStart(2,"0")} ${h>=12?"PM":"AM"}`}
+function load(){try{const r=localStorage.getItem(SK);return r?JSON.parse(r):null}catch{return null}}
+function save(d){try{localStorage.setItem(SK,JSON.stringify(d))}catch{}}
+const def=()=>({tasks:[],notes:{},reminders:[],lastCarryover:td()});
+
+const S={
+  app:{minHeight:"100vh",minHeight:"-webkit-fill-available",background:"#0A0A0F",color:"#F0EDE8",fontFamily:"'DM Sans',system-ui,sans-serif",paddingBottom:80},
+  hdr:{padding:"env(safe-area-inset-top,20px) 20px 0",paddingTop:"max(env(safe-area-inset-top),20px)",borderBottom:"1px solid #1E1E2E"},
+  hdrTop:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16},
+  logo:{fontSize:13,fontWeight:600,letterSpacing:"0.15em",color:"#8A85FF",textTransform:"uppercase"},
+  dateTxt:{fontSize:22,fontWeight:300,letterSpacing:"-0.02em"},
+  authBtn:{fontSize:12,padding:"6px 12px",borderRadius:20,border:"1px solid #2E2E4E",background:"transparent",color:"#8A85FF",cursor:"pointer"},
+  wkStrip:{display:"flex",gap:4,overflowX:"auto",paddingBottom:16,scrollbarWidth:"none"},
+  dayChip:(a,t)=>({minWidth:44,padding:"8px 6px",borderRadius:10,textAlign:"center",cursor:"pointer",flexShrink:0,background:a?"#8A85FF":t?"#1E1E3A":"transparent",border:a?"none":t?"1px solid #8A85FF44":"1px solid transparent"}),
+  dayNm:(a)=>({fontSize:10,fontWeight:500,color:a?"#E0DEFF":"#6B6B8A",letterSpacing:"0.05em",textTransform:"uppercase"}),
+  dayNum:(a)=>({fontSize:16,fontWeight:a?600:400,color:a?"#fff":"#A0A0C0",marginTop:2}),
+  nav:{display:"flex",justifyContent:"space-around",padding:"12px 0",paddingBottom:"max(12px,env(safe-area-inset-bottom))",borderTop:"1px solid #1E1E2E",background:"#0A0A0F",position:"fixed",bottom:0,left:0,right:0,zIndex:50},
+  navBtn:(a)=>({display:"flex",flexDirection:"column",alignItems:"center",gap:4,padding:"8px 16px",background:"none",border:"none",cursor:"pointer",color:a?"#8A85FF":"#4A4A6A"}),
+  navLbl:{fontSize:10,fontWeight:500,letterSpacing:"0.05em"},
+  sec:{padding:"16px 20px"},
+  secTtl:{fontSize:11,fontWeight:600,letterSpacing:"0.1em",color:"#6B6B8A",textTransform:"uppercase",marginBottom:12},
+  mRow:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16},
+  metric:{background:"#12121E",borderRadius:12,padding:"12px 10px",textAlign:"center"},
+  mNum:{fontSize:24,fontWeight:300,color:"#8A85FF"},
+  mLbl:{fontSize:10,color:"#6B6B8A",marginTop:2,letterSpacing:"0.05em"},
+  card:{background:"#12121E",borderRadius:14,padding:"14px 16px",marginBottom:10,border:"1px solid #1E1E2E"},
+  tRow:{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 0",borderBottom:"1px solid #1A1A2E"},
+  chk:(d)=>({width:20,height:20,borderRadius:6,border:`2px solid ${d?"#8A85FF":"#2E2E4E"}`,background:d?"#8A85FF":"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,marginTop:1}),
+  tTtl:(d)=>({fontSize:14,color:d?"#4A4A6A":"#F0EDE8",textDecoration:d?"line-through":"none",lineHeight:1.4}),
+  badge:(c,bg)=>({fontSize:10,padding:"2px 7px",borderRadius:20,background:bg,color:c,fontWeight:600,display:"inline-block"}),
+  fab:{position:"fixed",bottom:90,right:20,width:52,height:52,borderRadius:16,background:"#8A85FF",border:"none",color:"#fff",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px #8A85FF44",zIndex:100},
+  modal:{position:"fixed",inset:0,background:"#000000CC",zIndex:200,display:"flex",alignItems:"flex-end"},
+  mBox:{background:"#12121E",borderRadius:"20px 20px 0 0",padding:24,paddingBottom:"max(24px,env(safe-area-inset-bottom))",width:"100%",border:"1px solid #2E2E4E",maxHeight:"85vh",overflowY:"auto"},
+  inp:{width:"100%",background:"#0A0A0F",border:"1px solid #2E2E4E",borderRadius:10,padding:"10px 12px",color:"#F0EDE8",fontSize:14,marginBottom:10,outline:"none"},
+  sel:{width:"100%",background:"#0A0A0F",border:"1px solid #2E2E4E",borderRadius:10,padding:"10px 12px",color:"#F0EDE8",fontSize:14,marginBottom:10,outline:"none"},
+  btnP:{width:"100%",padding:13,borderRadius:12,background:"#8A85FF",border:"none",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",marginTop:6},
+  btnS:{width:"100%",padding:11,borderRadius:12,background:"transparent",border:"1px solid #2E2E4E",color:"#A0A0C0",fontSize:14,cursor:"pointer",marginTop:8},
+  fRow:{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:2,scrollbarWidth:"none"},
+  fChip:(a)=>({padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:500,cursor:"pointer",flexShrink:0,background:a?"#8A85FF22":"transparent",border:`1px solid ${a?"#8A85FF":"#2E2E4E"}`,color:a?"#8A85FF":"#6B6B8A"}),
+  calEv:{background:"#1A1A2E",borderRadius:10,padding:"10px 12px",marginBottom:8,borderLeft:"3px solid #8A85FF"},
+  rRow:{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:"1px solid #1A1A2E"},
+  empty:{textAlign:"center",padding:"32px 0",color:"#4A4A6A",fontSize:13},
+  note:{width:"100%",background:"#0A0A0F",border:"1px solid #2E2E4E",borderRadius:10,padding:"10px 12px",color:"#F0EDE8",fontSize:14,minHeight:120,resize:"none",outline:"none"},
+};
+
+function NavIco({id,cur,set,icon,label}){
+  return(
+    <button style={S.navBtn(cur===id)} onClick={()=>set(id)}>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{__html:icon}}/>
+      <span style={S.navLbl}>{label}</span>
+    </button>
+  );
+}
+
+function App(){
+  const[data,setData]=useState(()=>load()||def());
+  const[view,setView]=useState("digest");
+  const[selDate,setSelDate]=useState(td());
+  const[calEvs,setCalEvs]=useState([]);
+  const[gapiOk,setGapiOk]=useState(false);
+  const[signedIn,setSignedIn]=useState(false);
+  const[authLoad,setAuthLoad]=useState(false);
+  const[showTask,setShowTask]=useState(false);
+  const[showRem,setShowRem]=useState(false);
+  const[taskFilt,setTaskFilt]=useState("All");
+  const[wkStart,setWkStart]=useState(()=>{const d=new Date();d.setDate(d.getDate()-d.getDay());return fd(d)});
+
+  useEffect(()=>{save(data)},[data]);
+
+  useEffect(()=>{
+    if(data.lastCarryover===td())return;
+    setData(p=>({...p,tasks:p.tasks.map(t=>(!t.completed&&t.date<td())?{...t,date:td(),carriedOver:true}:t),lastCarryover:td()}));
+  },[]);
+
+  useEffect(()=>{
+    const s=document.createElement("script");
+    s.src="https://apis.google.com/js/api.js";
+    s.onload=()=>{
+      window.gapi.load("client:auth2",()=>{
+        window.gapi.client.init({clientId:CLIENT_ID,scope:SCOPES,discoveryDocs:["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]})
+        .then(()=>{
+          setGapiOk(true);
+          const a=window.gapi.auth2.getAuthInstance();
+          setSignedIn(a.isSignedIn.get());
+          a.isSignedIn.listen(setSignedIn);
+        }).catch(()=>{});
+      });
+    };
+    document.head.appendChild(s);
+  },[]);
+
+  const fetchEvs=useCallback(async(dt)=>{
+    if(!signedIn)return;
+    try{
+      const r=await window.gapi.client.calendar.events.list({calendarId:"primary",timeMin:new Date(dt+"T00:00:00").toISOString(),timeMax:new Date(dt+"T23:59:59").toISOString(),singleEvents:true,orderBy:"startTime"});
+      setCalEvs(r.result.items||[]);
+    }catch{}
+  },[signedIn]);
+
+  useEffect(()=>{if(signedIn)fetchEvs(selDate)},[signedIn,selDate,fetchEvs]);
+
+  const addCalEv=async(title,date,time,desc)=>{
+    if(!signedIn)return;
+    try{
+      const ev={summary:title,description:desc,start:time?{dateTime:`${date}T${time}:00`,timeZone:"Asia/Kolkata"}:{date},end:time?{dateTime:`${date}T${time.split(":")[0]}:${String(Number(time.split(":")[1])+30).padStart(2,"0")}:00`,timeZone:"Asia/Kolkata"}:{date},reminders:{useDefault:false,overrides:[{method:"popup",minutes:30}]}};
+      await window.gapi.client.calendar.events.insert({calendarId:"primary",resource:ev});
+      fetchEvs(selDate);
+    }catch{}
+  };
+
+  const addTask=async(t)=>{
+    const id=Date.now().toString();
+    if(t.calSync&&t.time)await addCalEv("Task: "+t.title,t.date,t.time,t.notes||"");
+    setData(p=>({...p,tasks:[...p.tasks,{id,...t,completed:false,carriedOver:false}]}));
+  };
+  const togTask=(id)=>setData(p=>({...p,tasks:p.tasks.map(t=>t.id===id?{...t,completed:!t.completed}:t)}));
+  const delTask=(id)=>setData(p=>({...p,tasks:p.tasks.filter(t=>t.id!==id)}));
+  const addRem=async(r)=>{
+    await addCalEv(r.title,r.date,r.time,r.notes||"");
+    setData(p=>({...p,reminders:[...p.reminders,{id:Date.now().toString(),...r}]}));
+  };
+  const delRem=(id)=>setData(p=>({...p,reminders:p.reminders.filter(r=>r.id!==id)}));
+  const saveNote=(dt,txt)=>setData(p=>({...p,notes:{...p.notes,[dt]:txt}}));
+
+  const todayTasks=data.tasks.filter(t=>t.date===selDate);
+  const filtTasks=taskFilt==="All"?todayTasks:todayTasks.filter(t=>t.category===taskFilt);
+  const pending=data.tasks.filter(t=>!t.completed&&t.date===td()).length;
+  const todayRems=data.reminders.filter(r=>r.date===selDate);
+  const wkDays=Array.from({length:7},(_,i)=>addD(wkStart,i));
+  const doneToday=todayTasks.filter(t=>t.completed).length;
+  const carried=todayTasks.filter(t=>t.carriedOver&&!t.completed).length;
+  const todayDisp=new Date().toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long"});
+
+  return(
+    <div style={S.app}>
+      <div style={S.hdr}>
+        <div style={S.hdrTop}>
+          <div>
+            <div style={S.logo}>Planner</div>
+            <div style={S.dateTxt}>{todayDisp}</div>
+          </div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {pending>0&&<div style={{...S.badge("#fff","#E24B4A"),fontSize:11,padding:"3px 8px"}}>{pending} pending</div>}
+            {gapiOk&&<button style={S.authBtn} onClick={()=>signedIn?window.gapi.auth2.getAuthInstance().signOut():(setAuthLoad(true),window.gapi.auth2.getAuthInstance().signIn().finally(()=>setAuthLoad(false)))}>
+              {authLoad?"...":signedIn?"● Cal":"Connect Cal"}
+            </button>}
+          </div>
+        </div>
+        <div style={S.wkStrip}>
+          <button onClick={()=>setWkStart(addD(wkStart,-7))} style={{background:"none",border:"none",color:"#6B6B8A",cursor:"pointer",fontSize:18,flexShrink:0}}>‹</button>
+          {wkDays.map(d=>{
+            const dt=new Date(d+"T00:00:00");
+            return(
+              <div key={d} style={S.dayChip(selDate===d,d===td())} onClick={()=>setSelDate(d)}>
+                <div style={S.dayNm(selDate===d)}>{dt.toLocaleDateString("en-IN",{weekday:"short"})}</div>
+                <div style={S.dayNum(selDate===d)}>{dt.getDate()}</div>
+              </div>
+            );
+          })}
+          <button onClick={()=>setWkStart(addD(wkStart,7))} style={{background:"none",border:"none",color:"#6B6B8A",cursor:"pointer",fontSize:18,flexShrink:0}}>›</button>
+        </div>
+      </div>
+
+      {view==="digest"&&(
+        <div style={S.sec}>
+          <div style={S.secTtl}>Today at a glance</div>
+          <div style={S.mRow}>
+            <div style={S.metric}><div style={S.mNum}>{calEvs.length}</div><div style={S.mLbl}>Events</div></div>
+            <div style={S.metric}><div style={S.mNum}>{pending}</div><div style={S.mLbl}>Pending</div></div>
+            <div style={S.metric}><div style={{...S.mNum,color:"#1D9E75"}}>{doneToday}</div><div style={S.mLbl}>Done</div></div>
+          </div>
+          {carried>0&&<div style={{...S.card,borderLeft:"3px solid #E24B4A",marginBottom:14}}><div style={{fontSize:12,color:"#E24B4A",fontWeight:600}}>⟳ {carried} task{carried>1?"s":""} carried over</div></div>}
+          {calEvs.length>0&&<>
+            <div style={S.secTtl}>Appointments</div>
+            {calEvs.slice(0,3).map(ev=>(
+              <div key={ev.id} style={S.calEv}>
+                <div style={{fontSize:13,fontWeight:500,color:"#E0DEFF"}}>{ev.summary}</div>
+                <div style={{fontSize:11,color:"#6B6B8A",marginTop:3}}>{ev.start.dateTime?new Date(ev.start.dateTime).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"All day"}</div>
+              </div>
+            ))}
+          </>}
+          {filtTasks.filter(t=>!t.completed).length>0&&<>
+            <div style={{...S.secTtl,marginTop:16}}>Pending tasks</div>
+            {filtTasks.filter(t=>!t.completed).slice(0,4).map(t=>(
+              <div key={t.id} style={S.tRow}>
+                <div style={S.chk(false)} onClick={()=>togTask(t.id)}></div>
+                <div style={{flex:1}}>
+                  <div style={S.tTtl(false)}>{t.title}</div>
+                  <div style={{display:"flex",gap:5,marginTop:4,flexWrap:"wrap"}}>
+                    <span style={S.badge(PC[t.priority],PC[t.priority]+"22")}>{t.priority}</span>
+                    <span style={S.badge(CC[t.category],CC[t.category]+"22")}>{t.category}</span>
+                    {t.carriedOver&&<span style={S.badge("#BA7517","#FAEEDA")}>Carried over</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>}
+          {todayRems.length>0&&<>
+            <div style={{...S.secTtl,marginTop:16}}>Reminders</div>
+            {todayRems.map(r=>(
+              <div key={r.id} style={S.rRow}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:"#8A85FF",flexShrink:0}}></div>
+                <div style={{flex:1}}><div style={{fontSize:13}}>{r.title}</div>{r.time&&<div style={{fontSize:11,color:"#6B6B8A"}}>{fmtT(r.time)}</div>}</div>
+              </div>
+            ))}
+          </>}
+          {calEvs.length===0&&filtTasks.filter(t=>!t.completed).length===0&&todayRems.length===0&&(
+            <div style={S.empty}><div style={{fontSize:32,marginBottom:8}}>✦</div><div>Clear day. Add tasks or appointments.</div></div>
+          )}
+        </div>
+      )}
+
+      {view==="tasks"&&(
+        <div style={S.sec}>
+          <div style={S.secTtl}>Tasks — {dsp(selDate)}</div>
+          <div style={S.fRow}>{["All",...CATS].map(f=><div key={f} style={S.fChip(taskFilt===f)} onClick={()=>setTaskFilt(f)}>{f}</div>)}</div>
+          {filtTasks.length===0?<div style={S.empty}>No tasks for this day.</div>:(
+            <>
+              {filtTasks.filter(t=>!t.completed).map(t=>(
+                <div key={t.id} style={S.tRow}>
+                  <div style={S.chk(false)} onClick={()=>togTask(t.id)}></div>
+                  <div style={{flex:1}}>
+                    <div style={S.tTtl(false)}>{t.title}</div>
+                    {t.notes&&<div style={{fontSize:12,color:"#6B6B8A",marginTop:2}}>{t.notes}</div>}
+                    <div style={{display:"flex",gap:5,marginTop:5,flexWrap:"wrap"}}>
+                      <span style={S.badge(PC[t.priority],PC[t.priority]+"22")}>{t.priority}</span>
+                      <span style={S.badge(CC[t.category],CC[t.category]+"22")}>{t.category}</span>
+                      {t.time&&<span style={{fontSize:11,color:"#6B6B8A"}}>{fmtT(t.time)}</span>}
+                      {t.carriedOver&&<span style={S.badge("#BA7517","#FAEEDA")}>Carried over</span>}
+                      {t.recurring!=="None"&&<span style={S.badge("#534AB7","#EEEDFE")}>{t.recurring}</span>}
+                    </div>
+                  </div>
+                  <button onClick={()=>delTask(t.id)} style={{background:"none",border:"none",color:"#4A4A6A",cursor:"pointer",fontSize:18,padding:"0 4px"}}>×</button>
+                </div>
+              ))}
+              {filtTasks.filter(t=>t.completed).length>0&&<>
+                <div style={{...S.secTtl,marginTop:16}}>Completed</div>
+                {filtTasks.filter(t=>t.completed).map(t=>(
+                  <div key={t.id} style={{...S.tRow,opacity:0.5}}>
+                    <div style={S.chk(true)} onClick={()=>togTask(t.id)}><svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2"><path d="M2 6l3 3 5-5"/></svg></div>
+                    <div style={{flex:1}}><div style={S.tTtl(true)}>{t.title}</div></div>
+                    <button onClick={()=>delTask(t.id)} style={{background:"none",border:"none",color:"#4A4A6A",cursor:"pointer",fontSize:18}}>×</button>
+                  </div>
+                ))}
+              </>}
+            </>
+          )}
+        </div>
+      )}
+
+      {view==="calendar"&&(
+        <div style={S.sec}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={S.secTtl}>Appointments — {dsp(selDate)}</div>
+            {signedIn&&<button onClick={()=>fetchEvs(selDate)} style={{background:"none",border:"none",color:"#8A85FF",fontSize:12,cursor:"pointer"}}>Refresh</button>}
+          </div>
+          {!signedIn?(
+            <div style={{...S.card,textAlign:"center"}}>
+              <div style={{color:"#6B6B8A",fontSize:13,marginBottom:12}}>Connect Google Calendar to see your appointments</div>
+              <button style={{...S.btnP,width:"auto",padding:"10px 24px"}} onClick={()=>window.gapi.auth2.getAuthInstance().signIn()}>Connect Calendar</button>
+            </div>
+          ):calEvs.length===0?<div style={S.empty}>No appointments for this day.</div>:(
+            calEvs.map(ev=>(
+              <div key={ev.id} style={S.calEv}>
+                <div style={{fontSize:14,fontWeight:500,color:"#E0DEFF"}}>{ev.summary}</div>
+                {ev.description&&<div style={{fontSize:12,color:"#6B6B8A",marginTop:3}}>{ev.description}</div>}
+                <div style={{fontSize:11,color:"#8A85FF",marginTop:5}}>
+                  {ev.start.dateTime?`${new Date(ev.start.dateTime).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} – ${new Date(ev.end.dateTime).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}`:"All day"}
+                </div>
+              </div>
+            ))
+          )}
+          <div style={{...S.secTtl,marginTop:16}}>Reminders</div>
+          {todayRems.length===0?<div style={S.empty}>No reminders for this day.</div>:(
+            todayRems.map(r=>(
+              <div key={r.id} style={{...S.card,display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:"#8A85FF",flexShrink:0}}></div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14}}>{r.title}</div>
+                  {r.time&&<div style={{fontSize:12,color:"#6B6B8A"}}>{fmtT(r.time)}</div>}
+                  {r.notes&&<div style={{fontSize:12,color:"#6B6B8A",marginTop:2}}>{r.notes}</div>}
+                </div>
+                <button onClick={()=>delRem(r.id)} style={{background:"none",border:"none",color:"#4A4A6A",cursor:"pointer",fontSize:18}}>×</button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {view==="notes"&&(
+        <div style={S.sec}>
+          <div style={S.secTtl}>Notes — {dsp(selDate)}</div>
+          <textarea style={S.note} placeholder="Jot down anything for today..." value={data.notes[selDate]||""} onChange={e=>saveNote(selDate,e.target.value)}/>
+          <div style={{fontSize:11,color:"#4A4A6A",marginTop:6}}>Auto-saved</div>
+        </div>
+      )}
+
+      {view==="stats"&&(
+        <div style={S.sec}>
+          <div style={S.secTtl}>This week</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            {["Total tasks","Completed","Carried over","Reminders"].map((lbl,i)=>{
+              const wt=data.tasks.filter(t=>t.date>=wkStart&&t.date<=addD(wkStart,6));
+              const vs=[wt.length,wt.filter(t=>t.completed).length,wt.filter(t=>t.carriedOver).length,data.reminders.filter(r=>r.date>=wkStart&&r.date<=addD(wkStart,6)).length];
+              return(<div key={lbl} style={S.metric}><div style={S.mNum}>{vs[i]}</div><div style={S.mLbl}>{lbl}</div></div>);
+            })}
+          </div>
+          <div style={S.secTtl}>By category</div>
+          {CATS.map(cat=>{
+            const wt=data.tasks.filter(t=>t.date>=wkStart&&t.date<=addD(wkStart,6)&&t.category===cat);
+            const done=wt.filter(t=>t.completed).length;
+            if(!wt.length)return null;
+            return(
+              <div key={cat} style={{...S.card,marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:13}}>{cat}</span><span style={{fontSize:12,color:"#6B6B8A"}}>{done}/{wt.length}</span></div>
+                <div style={{background:"#1E1E2E",borderRadius:4,height:4,overflow:"hidden"}}><div style={{width:`${wt.length>0?Math.round((done/wt.length)*100):0}%`,height:"100%",background:CC[cat],borderRadius:4}}></div></div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {view==="tasks"&&<button style={S.fab} onClick={()=>setShowTask(true)}>+</button>}
+      {view==="calendar"&&<button style={S.fab} onClick={()=>setShowRem(true)}>+</button>}
+
+      <div style={S.nav}>
+        <NavIco id="digest" cur={view} set={setView} label="Today" icon='<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>'/>
+        <NavIco id="tasks" cur={view} set={setView} label="Tasks" icon='<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'/>
+        <NavIco id="calendar" cur={view} set={setView} label="Calendar" icon='<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'/>
+        <NavIco id="notes" cur={view} set={setView} label="Notes" icon='<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>'/>
+        <NavIco id="stats" cur={view} set={setView} label="Stats" icon='<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'/>
+      </div>
+
+      {showTask&&<TaskModal onClose={()=>setShowTask(false)} onSave={addTask} defDate={selDate}/>}
+      {showRem&&<RemModal onClose={()=>setShowRem(false)} onSave={addRem} defDate={selDate}/>}
+    </div>
+  );
+}
+
+function TaskModal({onClose,onSave,defDate}){
+  const[title,setTitle]=useState("");
+  const[notes,setNotes]=useState("");
+  const[date,setDate]=useState(defDate);
+  const[time,setTime]=useState("");
+  const[pri,setPri]=useState("Medium");
+  const[cat,setCat]=useState("Personal");
+  const[rec,setRec]=useState("None");
+  const[cal,setCal]=useState(false);
+  const save=()=>{if(!title.trim())return;onSave({title:title.trim(),notes,date,time,priority:pri,category:cat,recurring:rec,calSync:cal});onClose()};
+  return(
+    <div style={S.modal} onClick={onClose}>
+      <div style={S.mBox} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:600,color:"#F0EDE8",marginBottom:16}}>Add task</div>
+        <input style={S.inp} placeholder="Task title" value={title} onChange={e=>setTitle(e.target.value)} autoFocus/>
+        <input style={S.inp} placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <input style={S.inp} type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+          <input style={S.inp} type="time" value={time} onChange={e=>setTime(e.target.value)}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <select style={S.sel} value={pri} onChange={e=>setPri(e.target.value)}>{PRIS.map(p=><option key={p}>{p}</option>)}</select>
+          <select style={S.sel} value={cat} onChange={e=>setCat(e.target.value)}>{CATS.map(c=><option key={c}>{c}</option>)}</select>
+        </div>
+        <select style={S.sel} value={rec} onChange={e=>setRec(e.target.value)}>{["None","Daily","Weekly","Monthly"].map(r=><option key={r}>{r}</option>)}</select>
+        <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#A0A0C0",marginBottom:6,cursor:"pointer"}}>
+          <input type="checkbox" checked={cal} onChange={e=>setCal(e.target.checked)}/> Sync to Google Calendar
+        </label>
+        <button style={S.btnP} onClick={save}>Add task</button>
+        <button style={S.btnS} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function RemModal({onClose,onSave,defDate}){
+  const[title,setTitle]=useState("");
+  const[notes,setNotes]=useState("");
+  const[date,setDate]=useState(defDate);
+  const[time,setTime]=useState("");
+  const[rec,setRec]=useState("None");
+  const save=()=>{if(!title.trim())return;onSave({title:title.trim(),notes,date,time,recurring:rec});onClose()};
+  return(
+    <div style={S.modal} onClick={onClose}>
+      <div style={S.mBox} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:600,color:"#F0EDE8",marginBottom:16}}>Add reminder</div>
+        <input style={S.inp} placeholder="Reminder title" value={title} onChange={e=>setTitle(e.target.value)} autoFocus/>
+        <input style={S.inp} placeholder="Notes (optional)" value={notes} onChange={e=>setNotes(e.target.value)}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          <input style={S.inp} type="date" value={date} onChange={e=>setDate(e.target.value)}/>
+          <input style={S.inp} type="time" value={time} onChange={e=>setTime(e.target.value)}/>
+        </div>
+        <select style={S.sel} value={rec} onChange={e=>setRec(e.target.value)}>{["None","Daily","Weekly","Monthly"].map(r=><option key={r}>{r}</option>)}</select>
+        <div style={{fontSize:12,color:"#6B6B8A",marginBottom:10}}>Will be added to Google Calendar with a 30 min alert.</div>
+        <button style={S.btnP} onClick={save}>Add reminder</button>
+        <button style={S.btnS} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
